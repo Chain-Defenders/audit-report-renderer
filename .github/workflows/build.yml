@@ -1,0 +1,45 @@
+name: Build image
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+  packages: write
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: renderer:test
+      - name: Smoke test (XeLaTeX with the template's packages, Python 3.11)
+        run: |
+          docker run --rm -v "$PWD/smoke:/smoke" -w /smoke renderer:test sh -c 'xelatex -interaction=nonstopmode -halt-on-error smoke.tex >/dev/null && test -s smoke.pdf && python -c "import sys; assert sys.version_info[:2] == (3, 11), sys.version"'
+      - name: Push
+        id: push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ghcr.io/chain-defenders/audit-report-renderer:latest
+            ghcr.io/chain-defenders/audit-report-renderer:${{ github.sha }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.description=TeX Live, pandoc, Ghostscript and Python 3.11 for the Chain Defenders audit report workflow. Tools only.
+      - name: Digest to pin
+        run: echo "Pin the report workflow to ghcr.io/chain-defenders/audit-report-renderer@${{ steps.push.outputs.digest }}" >> "$GITHUB_STEP_SUMMARY"
